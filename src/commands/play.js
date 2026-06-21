@@ -50,17 +50,46 @@ module.exports = {
         await interaction.editReply(`🔗 Memproses tautan: \`${query}\``);
       }
 
-      await distube.play(voiceChannel, url, {
+      await playWithRetry(distube, voiceChannel, url, {
         member: interaction.member,
         textChannel: interaction.channel,
         metadata: { interaction },
       });
     } catch (err) {
       console.error('[play]', err);
-      await interaction.editReply(`❌ Gagal memutar: ${String(err.message ?? err).slice(0, 1800)}`);
+      await interaction.editReply(`❌ Gagal memutar: ${friendlyError(err)}`);
     }
   },
 };
+
+/**
+ * distube.play dengan retry sekali jika gagal connect ke voice.
+ * VOICE_CONNECT_FAILED sering terjadi karena ada koneksi voice "zombie" dari
+ * sesi sebelumnya — kita tinggalkan dulu voice-nya, lalu coba lagi.
+ */
+async function playWithRetry(distube, voiceChannel, url, options, retries = 1) {
+  try {
+    await distube.play(voiceChannel, url, options);
+  } catch (err) {
+    if (err?.errorCode === 'VOICE_CONNECT_FAILED' && retries > 0) {
+      try {
+        distube.voices.leave(voiceChannel.guild.id);
+      } catch {
+        /* tidak di voice */
+      }
+      await new Promise((r) => setTimeout(r, 1500));
+      return playWithRetry(distube, voiceChannel, url, options, retries - 1);
+    }
+    throw err;
+  }
+}
+
+function friendlyError(err) {
+  if (err?.errorCode === 'VOICE_CONNECT_FAILED') {
+    return 'Gagal masuk ke voice channel. Coba lagi sebentar, atau pastikan bot punya izin Connect & Speak di channel itu.';
+  }
+  return String(err.message ?? err).slice(0, 1800);
+}
 
 /**
  * Putar dari Spotify: resolusi metadata → cari di YouTube/SoundCloud → putar.
@@ -79,10 +108,10 @@ async function playSpotify(interaction, distube, voiceChannel, url, source) {
     textChannel: interaction.channel,
   };
 
-  // Lagu pertama: putar segera.
+  // Lagu pertama: putar segera (dengan retry voice connect).
   const first = sp.tracks[0];
   const firstUrl = (await resolveQuery(first.query, source)).url;
-  await distube.play(voiceChannel, firstUrl, { ...baseOpts, metadata: { interaction } });
+  await playWithRetry(distube, voiceChannel, firstUrl, { ...baseOpts, metadata: { interaction } });
 
   if (sp.tracks.length === 1) {
     return interaction.editReply(`🎧 Spotify → ${label}: **${first.artist} - ${first.title}**`);
@@ -102,6 +131,11 @@ async function playSpotify(interaction, distube, voiceChannel, url, source) {
         await distube.play(voiceChannel, u, { ...baseOpts, metadata: { interaction, silent: true } });
         added += 1;
       } catch (e) {
+        // Kalau voice-nya mati, percuma lanjut 70-an lagu lagi — berhenti.
+        if (e?.errorCode === 'VOICE_CONNECT_FAILED') {
+          console.warn('[spotify] voice terputus, hentikan penambahan antrian.');
+          break;
+        }
         console.warn('[spotify] lewati:', t.query, '-', e.message);
       }
     }
