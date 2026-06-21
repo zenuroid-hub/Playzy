@@ -1,0 +1,26 @@
+{
+  "name": "discord-music-bot",
+  "version": "1.0.0",
+  "description": "Bot musik Discord (discord.js + DisTube + yt-dlp)",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "deploy": "node src/deploy-commands.js",
+    "dev": "node --watch src/index.js",
+    "postinstall": "patch-package"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "dependencies": {
+    "@discordjs/voice": "^0.19.2",
+    "@distube/yt-dlp": "^2.0.1",
+    "discord.js": "^14.26.4",
+    "distube": "^5.2.3",
+    "dotenv": "^16.4.5",
+    "ffmpeg-static": "^5.2.0",
+    "opusscript": "^0.1.1",
+    "patch-package": "^8.0.1"
+  }
+}
