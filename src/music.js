@@ -30,8 +30,19 @@ function setupDistube(client) {
   const distube = new DisTube(client, {
     // Hanya emit event 'playSong' untuk lagu baru (bukan saat di-seek/loop).
     emitNewSongOnly: true,
-    // Pakai ffmpeg yang terdeteksi; kalau null, DisTube cari sendiri di PATH.
-    ...(ffmpegPath ? { ffmpeg: { path: ffmpegPath } } : {}),
+    // Konfigurasi ffmpeg. Selain reconnect bawaan DisTube, tambahkan reconnect
+    // saat HTTP error (403) & network error — YouTube sering throttle di tengah
+    // stream dan tanpa ini ffmpeg langsung exit 1 (FFMPEG_EXITED) → lagu ke-skip.
+    ffmpeg: {
+      ...(ffmpegPath ? { path: ffmpegPath } : {}),
+      args: {
+        input: {
+          reconnect_on_network_error: 1,
+          reconnect_on_http_error: '4xx,5xx',
+          reconnect_delay_max: 10,
+        },
+      },
+    },
     // Plugin yt-dlp untuk ekstraksi audio YouTube (dan ratusan situs lain).
     plugins: [new YtDlpPlugin({ update: false })],
   });
@@ -124,6 +135,8 @@ function setupDistube(client) {
     .on('addSong', (queue, song) => {
       clearTimer(idleTimers, queue.id);
       lastTextChannel.set(queue.id, channelOf(queue));
+      // Lagu dari bulk-add (mis. playlist Spotify) tidak diumumkan satu-satu.
+      if (song.metadata?.silent) return;
       const ch = channelOf(queue);
       if (!ch) return;
       ch.send(`✅ Ditambahkan ke antrian: **${song.name}** \`(${song.formattedDuration})\``).catch(() => {});
